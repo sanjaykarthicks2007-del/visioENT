@@ -1,56 +1,100 @@
-# Welcome to your Expo app 👋
+# visioENT
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+### Visualisation • Imaging • ENT
 
-## Get started
+A compact, portable ENT endoscopy visualization system designed to provide real-time endoscopic imaging through a mobile application.
 
-1. Install dependencies
+---
 
-   ```bash
-   npm install
-   ```
+## 🩺 About visioENT
 
-2. Start the app
+**visioENT** is a portable ENT endoscopy system developed by **Team CuraXion** to make ENT examination more accessible, compact, and affordable.
 
-   ```bash
-   npx expo start
-   ```
+The system captures live images from an ENT endoscope using an **OV5640 camera** connected to an **ESP32-S3**. The ESP32-S3 provides wireless video streaming to an Android mobile application, allowing the endoscopic view to be displayed in real time.
 
-In the output, you'll find options to open the app in a
+The system is designed for applications such as:
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+- Clinical ENT examination
+- Bedside examination
+- Rural and resource-limited healthcare settings
+- Health camps
+- Portable diagnosis support
+- Remote consultation workflows
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+> **Note:** The current version does not include AI-based diagnosis or AI integration.
 
-## Get a fresh project
+---
 
-When you're ready, run:
+## 🎯 Problem Statement
 
-```bash
-npm run reset-project
-```
+Conventional ENT endoscopy systems can be:
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+- Bulky
+- Expensive
+- Difficult to transport
+- Dependent on dedicated visualization equipment
+- Less suitable for portable and resource-limited environments
 
-### Other setup steps
+visioENT aims to provide a **compact and portable alternative** using embedded hardware and mobile technology.
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+---
 
-## Learn more
+## 💡 Proposed Solution
 
-To learn more about developing your project with Expo, look at the following resources:
+visioENT integrates:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+**ENT Endoscope → OV5640 Camera → ESP32-S3 → Wi-Fi → Android Application**
 
-## Join the community
+The camera captures the endoscopic view, while the ESP32-S3 processes the camera stream and provides wireless connectivity to the mobile application.
 
-Join our community of developers creating universal apps.
+---
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## ✨ Key Features
+
+- 📷 Real-time ENT endoscopic visualization
+- 📱 Android mobile application
+- 📡 Wi-Fi-based wireless video streaming
+- 🔋 Portable battery-powered hardware
+- 🧩 Compact embedded design
+- 🏥 Designed for clinical and field environments
+- 🌐 WebRTC-based communication architecture
+- ☁️ Firebase integration for application data
+- 💾 Planned support for image/session storage
+
+---
+
+## 🏗️ System Architecture
+
+```text
+                ENT ENDOSCOPE
+                     │
+                     ▼
+              ┌─────────────┐
+              │   OV5640    │
+              │  5MP Camera │
+              └──────┬──────┘
+                     │
+                     ▼
+              ┌─────────────┐
+              │  ESP32-S3   │
+              │             │
+              │ Image       │
+              │ Capture     │
+              │ Processing  │
+              └──────┬──────┘
+                     │
+                   Wi-Fi
+                     │
+                     ▼
+              ┌─────────────┐
+              │   Android   │
+              │     App     │
+              │ React Native│
+              └──────┬──────┘
+                     │
+          ┌──────────┴──────────┐
+          ▼                     ▼
+      Visualization         WebRTC
+                                │
+                                ▼
+                       Remote Consultation
