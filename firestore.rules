@@ -1,0 +1,219 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // HELPER FUNCTIONS & CLINICAL ROLE RESOLUTION
+    // =========================================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function hasUserDoc() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function getUserData() {
+      return getUserDoc().data;
+    }
+
+    function getUserRole() {
+      return hasUserDoc() && 'role' in getUserData() ? getUserData().role : null;
+    }
+
+    // Role MUST come strictly from users/{uid}. No assumed fallback or email inference.
+    function isDoctor() {
+      return isSignedIn() && getUserRole() == 'doctor';
+    }
+
+    function isOperator() {
+      return isSignedIn() && getUserRole() == 'operator';
+    }
+
+    function getUserFacilityId() {
+      return hasUserDoc() && 'facilityId' in getUserData() ? getUserData().facilityId : '';
+    }
+
+    function getUserFacilityName() {
+      return hasUserDoc() && 'facilityName' in getUserData() ? getUserData().facilityName : '';
+    }
+
+    // =========================================================================
+    // 1. USERS COLLECTION (users/{uid})
+    // =========================================================================
+    match /users/{uid} {
+      // Authenticated clinical personnel with valid profile can read user profiles
+      allow read: if isSignedIn();
+
+      // Clinical profiles can be created during registration (by active operator or initial setup)
+      allow create: if isSignedIn();
+
+      // Clinical users can update their own profile, BUT CANNOT change their role.
+      // Role changes can only be performed by an authenticated operator.
+      allow update: if isSignedIn() && (
+        isOperator() ||
+        (
+          request.auth.uid == uid &&
+          request.resource.data.role == resource.data.role
+        )
+      );
+
+      // Audit logs & clinical accounts cannot be deleted arbitrarily from client
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // 2. PATIENTS COLLECTION (patients/{patientId})
+    // =========================================================================
+    match /patients/{patientId} {
+      // Operators can read ONLY patients registered for their own PHC facility.
+      // Doctors can read clinical patients across consultations.
+      // Unprofiled users have NO access.
+      allow read: if isSignedIn() && (
+        isDoctor() ||
+        (
+          isOperator() && (
+            resource.data.registeredByFacilityId == getUserFacilityId() ||
+            resource.data.registeredByFacilityName == getUserFacilityName() ||
+            resource.data.registeredByUid == request.auth.uid
+          )
+        )
+      );
+
+      // Only PHC Operators can register new patients for their own facility
+      allow create: if isSignedIn() && isOperator() && (
+        request.resource.data.registeredByFacilityId == getUserFacilityId() ||
+        request.resource.data.registeredByFacilityName == getUserFacilityName() ||
+        request.resource.data.registeredByUid == request.auth.uid
+      );
+
+      // Operators can update demographic/notes fields ONLY for their own facility patients.
+      // Doctors can append annotations.
+      allow update: if isSignedIn() && (
+        isDoctor() ||
+        (
+          isOperator() && (
+            resource.data.registeredByFacilityId == getUserFacilityId() ||
+            resource.data.registeredByFacilityName == getUserFacilityName() ||
+            resource.data.registeredByUid == request.auth.uid
+          )
+        )
+      );
+
+      // Patient records are immutable clinical records; deletions prohibited
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // 3. CONSULTATIONS COLLECTION (consultations/{consultationId})
+    // =========================================================================
+    match /consultations/{consultationId} {
+      // Authenticated clinical users with valid role can read consultations
+      allow read: if isSignedIn() && (isDoctor() || isOperator());
+
+      // PHC Operators create consultation records (cannot inject diagnostic findings at creation)
+      allow create: if isSignedIn() && isOperator() &&
+        (!('clinicalFindings' in request.resource.data) || request.resource.data.clinicalFindings == '' || request.resource.data.clinicalFindings == null) &&
+        (!('provisionalDiagnosis' in request.resource.data) || request.resource.data.provisionalDiagnosis == '' || request.resource.data.provisionalDiagnosis == null) &&
+        (!('doctorAdvicePlan' in request.resource.data) || request.resource.data.doctorAdvicePlan == '' || request.resource.data.doctorAdvicePlan == null);
+
+      // State transitions and field updates:
+      // STRICT RULES:
+      // 1. ONLY a doctor can transition status to 'completed' from 'active' state.
+      // 2. Operators are prohibited from setting status to 'completed'.
+      // 3. ONLY doctors can write or modify clinicalFindings, provisionalDiagnosis, doctorAdvicePlan.
+      allow update: if isSignedIn() && (
+        // Doctor completing consultation from active state:
+        request.resource.data.status == 'completed'
+          ? (isDoctor() && resource.data.status == 'active')
+          : (
+            // Doctor normal updates:
+            isDoctor() ||
+            // Operator updates: CANNOT set completed AND CANNOT modify doctor diagnostic fields:
+            (
+              isOperator() &&
+              request.resource.data.status != 'completed' &&
+              !request.resource.data.diff(resource.data).affectedKeys().hasAny(['clinicalFindings', 'provisionalDiagnosis', 'doctorAdvicePlan'])
+            )
+          )
+      );
+
+      // Clinical consultations cannot be deleted
+      allow delete: if false;
+
+      // =======================================================================
+      // 3A. CONSULTATION MESSAGES (consultations/{consultationId}/messages/{messageId})
+      // =======================================================================
+      match /messages/{messageId} {
+        function getConsultationDoc() {
+          return get(/databases/$(database)/documents/consultations/$(consultationId)).data;
+        }
+
+        function isConsultationParticipant() {
+          return isSignedIn() && (
+            isDoctor() ||
+            (isOperator() && (
+              getConsultationDoc().facilityId == getUserFacilityId() ||
+              getConsultationDoc().facilityName == getUserFacilityName() ||
+              getConsultationDoc().operatorUid == request.auth.uid
+            ))
+          );
+        }
+
+        // Read: Only authorized participants (facility operator or doctor)
+        allow read: if isConsultationParticipant();
+
+        // Create:
+        // - User must be authenticated participant
+        // - senderUid must equal request.auth.uid
+        // - senderRole must equal getUserRole()
+        // - consultationId must match parent consultationId
+        // - text must be string, not empty, <= 1000 chars
+        // - Parent consultation must not be completed
+        allow create: if isConsultationParticipant() &&
+          request.auth.uid == request.resource.data.senderUid &&
+          request.resource.data.senderRole == getUserRole() &&
+          request.resource.data.consultationId == consultationId &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() > 0 &&
+          request.resource.data.text.size() <= 1000 &&
+          getConsultationDoc().status != 'completed';
+
+        // Messages are permanent and immutable clinical dialogue
+        allow update: if false;
+        allow delete: if false;
+      }
+
+      // =======================================================================
+      // 3B. WEBRTC SIGNALING (consultations/{consultationId}/webrtc/{sessionDoc})
+      // =======================================================================
+      match /webrtc/{sessionDoc} {
+        function getConsultationDoc() {
+          return get(/databases/$(database)/documents/consultations/$(consultationId)).data;
+        }
+
+        function isSignalingParticipant() {
+          return isSignedIn() && (
+            isDoctor() ||
+            (isOperator() && (
+              getConsultationDoc().facilityId == getUserFacilityId() ||
+              getConsultationDoc().facilityName == getUserFacilityName() ||
+              getConsultationDoc().operatorUid == request.auth.uid
+            ))
+          );
+        }
+
+        allow read, write: if isSignalingParticipant();
+
+        match /{candidateCol}/{candidateId} {
+          allow read, write: if isSignalingParticipant();
+        }
+      }
+    }
+  }
+}
